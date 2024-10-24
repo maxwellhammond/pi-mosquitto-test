@@ -1,0 +1,52 @@
+use rppal::gpio::{Gpio, Trigger};
+use std::sync::mpsc::channel;
+use std::thread;
+use std::time::Duration;
+
+mod gpiostatus;
+use gpiostatus::print_status;
+fn main() -> rppal::gpio::Result<()> {
+  _ = print_status();
+  println!("Watching GPIO for changes...");
+  // Create a new GPIO object and get pin 16
+  let gpio = Gpio::new()?;
+  let mut pin = gpio.get(12)?.into_input_pulldown();
+
+  // Set up a channel to receive GPIO events
+  let (tx, rx) = channel();
+
+  // signal debounce time to filter flicker
+  let debounce_time = Some(Duration::from_millis(200));
+
+  // Register the pin with an interrupt on both rising and falling edges
+  pin.set_async_interrupt(Trigger::Both, debounce_time, move |event| {
+      tx.send(event).unwrap();
+  })?;
+
+  // Loop to handle pin state changes
+  loop {
+      // Receive the signal sent from the interrupt
+      if let Ok(event) = rx.recv() {
+          match event.trigger {
+            Trigger::RisingEdge => {
+              println!("Pin 16 is HIGH!");
+
+              // pass msg down mqtt?
+            },
+            Trigger::FallingEdge => println!("Pin 16 is LOW!"),
+            Trigger::Disabled => todo!(),
+            Trigger::Both => todo!(),
+          }
+      }
+      
+      // Optional sleep to avoid busy-waiting
+      thread::sleep(Duration::from_millis(10));
+  }
+
+  // Remove the interrupt handler when done
+  // This won't be reached in this infinite loop, but it's good practice in real-world cases
+  // pin.clear_async_interrupt()?;
+
+  // Ok result for the main function
+  Ok(())
+}
